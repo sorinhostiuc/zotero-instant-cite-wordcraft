@@ -1,0 +1,36 @@
+{
+  "name": "zotero-instant-cite-wordcraft",
+  "version": "0.1.0",
+  "description": "InstantCite search-and-cite dialog for the WordCraft word processor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sorinhost/InstantCiteWordCraft.git"
+  },
+  "config": {
+    "addonName": "Zotero Instant Cite for WordCraft",
+    "addonID": "instantcite-wordcraft@sorin.hostiuc",
+    "addonRef": "instantcitewc",
+    "addonInstance": "InstantCiteWordCraft"
+  },
+  "scripts": {
+    "start": "zotero-plugin serve",
+    "build": "zotero-plugin build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@swc/core": "^1.15.18",
+    "zotero-plugin-toolkit": "^5.1.2"
+  },
+  "optionalDependencies": {
+    "@swc/core-win32-x64-msvc": "^1.15.21"
+  },
+  "devDependencies": {
+    "jsdom": "^28.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0",
+    "zotero-plugin-scaffold": "^0.8.3",
+    "zotero-types": "^4.1.2"
+  }
+}

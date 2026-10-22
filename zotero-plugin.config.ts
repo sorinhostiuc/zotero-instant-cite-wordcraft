@@ -1,0 +1,51 @@
+import { defineConfig } from "zotero-plugin-scaffold";
+import { copyFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import pkg from "./package.json";
+
+export function getRootXpiDestinations(version: string): string[] {
+  return [
+    "zotero-instant-cite-wordcraft.xpi",
+    `zotero-instant-cite-wordcraft-${version}.xpi`,
+  ];
+}
+
+export default defineConfig({
+  name: pkg.config.addonName,
+  id: pkg.config.addonID,
+  namespace: pkg.config.addonRef,
+  source: ["src", "addon"],
+  dist: ".scaffold/build",
+  build: {
+    assets: "addon/**/*.*",
+    // addon/manifest.json is complete; the generated one would add an update_url
+    // pointing at a GitHub release this plugin does not publish.
+    makeManifest: { enable: false },
+    define: {
+      addonName: pkg.config.addonName,
+      addonID: pkg.config.addonID,
+      addonRef: pkg.config.addonRef,
+      addonInstance: pkg.config.addonInstance,
+      buildVersion: pkg.version,
+    },
+    esbuildOptions: [
+      {
+        entryPoints: ["src/index.ts"],
+        bundle: true,
+        target: "firefox128",
+        outdir: ".scaffold/build/addon",
+        minify: true,
+      },
+    ],
+    hooks: {
+      "build:pack": async (ctx) => {
+        const source = resolve(ctx.dist, `${ctx.xpiName}.xpi`);
+        await Promise.all(
+          getRootXpiDestinations(ctx.version).map(destination => (
+            copyFile(source, resolve(destination))
+          )),
+        );
+      },
+    },
+  },
+});

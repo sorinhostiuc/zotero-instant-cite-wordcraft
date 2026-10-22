@@ -1,0 +1,11 @@
+pref("extensions.instantcitewc.sources.pubmed.enabled", true);
+pref("extensions.instantcitewc.sources.openalex.enabled", true);
+pref("extensions.instantcitewc.sources.crossref.enabled", false);
+pref("extensions.instantcitewc.sources.semanticscholar.enabled", false);
+pref("extensions.instantcitewc.maxResults", 20);
+pref("extensions.instantcitewc.searchDialogWidth", 1050);
+pref("extensions.instantcitewc.searchDialogHeight", 800);
+pref("extensions.instantcitewc.defaultYearFilter", "all");
+pref("extensions.instantcitewc.openAccessOnly", false);
+pref("extensions.instantcitewc.cacheEnabled", true);
+pref("extensions.instantcitewc.cacheTTLHours", 24);
