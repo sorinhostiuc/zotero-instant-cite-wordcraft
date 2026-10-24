@@ -1,20 +1,20 @@
 /**
- * Install a WordCraft keyboard shortcut for Zotero's Add/Edit Citation
- * command, which InstantCite intercepts.
+ * The WordCraft shortcut for Zotero's Add/Edit Citation, which InstantCite
+ * intercepts.
  *
- * WordCraft keeps keyboard customizations in its UI settings file
+ * WordCraft 0.10.0 cannot bind a key to its Zotero commands, so the shortcut
+ * is held by a helper program (see wordcraft-hotkey.ts). Earlier versions
+ * wrote a binding into WordCraft's UI settings file
  * (Windows: %APPDATA%\WordCraft\ui.json):
  *
  *   "keyboard": { "assigned": { "Mod+Shift+I": "ui.zotero.addEditCitation" }, "removed": [] }
  *
- * WordCraft reads ui.json only at startup and writes its in-memory settings
- * back on exit, which drops a binding added while it was open. Once the
- * shortcut is installed, a keeper watches ui.json and adds the binding back
- * whenever WordCraft rewrites the file without it, so the binding is there
- * at WordCraft's next start whatever order the user closed and installed in.
+ * WordCraft loads that entry but never fires it. It is removed again while
+ * WordCraft is closed (WordCraft writes the settings it loaded back on exit).
  */
 
-import { getDefaultWordCraftShortcut, getPref, setPref } from "./preferences";
+import { getDefaultWordCraftShortcut, setPref } from "./preferences";
+import { isWordCraftHotkeySupported, startWordCraftHotkey, stopWordCraftHotkey } from "./wordcraft-hotkey";
 import { detectPlatform, type InstantCitePlatform } from "./platform";
 import { runSubprocess } from "./wordcraft-detector";
 
@@ -198,38 +198,6 @@ export interface ShortcutResult {
   success: boolean;
   message: string;
   showManual?: boolean;
-  /** WordCraft's state is unknown; retry with `assumeClosed` once the user confirms it is closed. */
-  needsClosedConfirmation?: boolean;
-}
-
-export interface ShortcutOptions {
-  /** The user confirmed WordCraft is closed (used when the process check is unavailable). */
-  assumeClosed?: boolean;
-}
-
-const RUNNING_STATE_UNKNOWN =
-  "Could not check whether WordCraft is running. WordCraft overwrites its settings on exit, " +
-  "so a shortcut written while it is open is lost.";
-
-async function checkWordCraftClosed(
-  platform: InstantCitePlatform,
-  options: ShortcutOptions,
-  retryLabel: string,
-): Promise<ShortcutResult | null> {
-  if (options.assumeClosed) return null;
-  const running = await isWordCraftRunning(platform);
-  if (running === false) return null;
-  if (running) {
-    return {
-      success: false,
-      message: `WordCraft is running. Close WordCraft completely (it overwrites its settings on exit), then click ${retryLabel} again.`,
-    };
-  }
-  return {
-    success: false,
-    message: RUNNING_STATE_UNKNOWN + "\n\nIs WordCraft closed right now?",
-    needsClosedConfirmation: true,
-  };
 }
 
 // --- Pure helpers (unit tested) ---
@@ -291,9 +259,6 @@ function isRemovedEntryForKey(entry: unknown, key: string): boolean {
 export interface UiJsonRewrite {
   text: string;
   changed: boolean;
-  conflict?: string;
-  /** Command whose binding on the key was taken over (built-in or user-assigned). */
-  replaced?: string;
 }
 
 interface KeyboardSection {
@@ -328,47 +293,6 @@ function dropCitationKeys(section: KeyboardSection, keep: string | null): boolea
     changed = true;
   }
   return changed;
-}
-
-/**
- * Bind `key` to the Zotero citation command in a ui.json document, the way
- * WordCraft's own Customize Keyboard does it: a key that belongs to a
- * built-in command is assigned and also listed in `removed`, which turns the
- * built-in binding off. A key the user assigned to another command is a
- * conflict unless `override` is set. Earlier InstantCite keys are dropped.
- */
-export function addShortcutToUiJson(text: string, key: string, override = false): UiJsonRewrite {
-  const section = readKeyboard(text);
-  const { assigned } = section;
-
-  let replaced: string | undefined;
-  const existing = findBinding(assigned, key);
-  if (existing && existing[1] !== WORDCRAFT_CITATION_COMMAND) {
-    if (!override) return { text, changed: false, conflict: `${existing[0]} is already assigned to ${existing[1]}` };
-    delete assigned[existing[0]];
-    replaced = String(existing[1]);
-  }
-
-  let changed = dropCitationKeys(section, key) || replaced !== undefined;
-  if (!existing || replaced !== undefined) {
-    assigned[key] = WORDCRAFT_CITATION_COMMAND;
-    changed = true;
-  }
-
-  const builtIn = getDefaultBindingConflict(key);
-  const listed = section.removed.some(entry => isRemovedEntryForKey(entry, key));
-  if (builtIn && !listed) {
-    section.removed = [...section.removed, key];
-    changed = true;
-  } else if (!builtIn && listed) {
-    section.removed = section.removed.filter(entry => !isRemovedEntryForKey(entry, key));
-    changed = true;
-  }
-  replaced ??= builtIn ?? undefined;
-
-  if (!changed) return { text, changed: false, replaced };
-  section.data.keyboard = { ...section.keyboard, assigned, removed: section.removed };
-  return { text: JSON.stringify(section.data, null, 2), changed: true, replaced };
 }
 
 /** Remove every key bound to the Zotero citation command and give built-in keys back. */
@@ -491,141 +415,75 @@ async function writeWithBackup(path: string, original: string | null, text: stri
   await IOUtils.writeUTF8(path, text, { tmpPath: path + ".tmp" });
 }
 
-export function getWordCraftManualInstructions(shortcut = getDefaultWordCraftShortcut()): string {
+export function getWordCraftManualInstructions(): string {
   return [
-    "Manual setup in WordCraft:",
+    "WordCraft has no keyboard setting for its Zotero commands.",
     "",
-    "1. Open File > Options > Customize Keyboard.",
-    "2. Pick the command \"Zotero: Add/Edit Citation\" (id " + WORDCRAFT_CITATION_COMMAND + ").",
-    "3. Press " + shortcut + " in the new shortcut box and assign it.",
-    "",
-    "Without a shortcut, the Add/Edit Citation button on WordCraft's Zotero ribbon tab also opens InstantCite.",
+    "Without the shortcut, click Add/Edit Citation on WordCraft's Zotero ribbon tab:",
+    "InstantCite opens in its place.",
   ].join("\n");
 }
 
+/** Turn the shortcut on (or move it to another key) and start the helper that holds it. */
 export async function installWordCraftShortcut(
-  shortcut = getPref<string>("wordcraftShortcut") || getDefaultWordCraftShortcut(),
-  options: ShortcutOptions = {},
+  shortcut = getDefaultWordCraftShortcut(),
 ): Promise<ShortcutResult> {
-  const platform = detectPlatform();
-  const key = toWordCraftKey(shortcut, platform);
-  if (!key) {
+  if (!isWordCraftHotkeySupported()) {
+    return { success: false, message: "The WordCraft shortcut is available on Windows only.", showManual: true };
+  }
+  if (!toWordCraftKey(shortcut, "windows")) {
     return { success: false, message: `"${shortcut}" is not a valid shortcut. Use something like Ctrl+Shift+I.` };
   }
-
-  try {
-    const target = await findUiJson(platform);
-    if (!target) {
-      return {
-        success: false,
-        message: "Could not find WordCraft's settings folder. Searched:\n" +
-          getWordCraftConfigDirCandidates(platform).join("\n") +
-          "\n\nStart WordCraft once so it creates its settings, then try again.",
-        showManual: true,
-      };
-    }
-
-    const original = target.exists ? await IOUtils.readUTF8(target.path) : null;
-    const rewrite = addShortcutToUiJson(original ?? "", key, true);
-    if (rewrite.changed) await writeWithBackup(target.path, original, rewrite.text);
-    setPref("wordcraftShortcut", shortcut);
-    setPref("wordcraftShortcutKeep", true);
-    startWordCraftShortcutKeeper();
-
-    const running = options.assumeClosed ? false : await isWordCraftRunning(platform);
-    const restart = running === false
-      ? "Start WordCraft and press it to open InstantCite (Zotero must be running)."
-      : "WordCraft reads shortcuts only when it starts: close WordCraft completely and start it again. " +
-        "WordCraft drops the shortcut from its settings when it closes; InstantCite puts it back " +
-        "within a second, as long as Zotero is running.";
+  setPref("wordcraftShortcut", shortcut);
+  setPref("wordcraftShortcutKeep", true);
+  if (!await startWordCraftHotkey()) {
     return {
-      success: true,
-      message: `Keyboard shortcut ${key} installed in WordCraft.` +
-        (rewrite.replaced ? ` It replaces WordCraft's ${rewrite.replaced} on that key.` : "") +
-        `\n\n${restart}\n` +
-        "Settings file: " + target.path +
-        (rewrite.changed && original !== null ? "\nBackup: " + target.path + BACKUP_SUFFIX : ""),
+      success: false,
+      message: "The shortcut helper could not be started; see Help > Debug Output Logging and the Error Console.",
+      showManual: true,
     };
-  } catch (err) {
-    return { success: false, message: "Installation failed: " + err, showManual: true };
   }
+  void removeLegacyBinding();
+  return {
+    success: true,
+    message: `${shortcut} now opens InstantCite in WordCraft, whenever Zotero is running. ` +
+      "It presses Add/Edit Citation on WordCraft's Zotero ribbon tab, so no WordCraft restart is needed. " +
+      "In other programs the key keeps its usual meaning.",
+  };
 }
 
-export async function uninstallWordCraftShortcut(options: ShortcutOptions = {}): Promise<ShortcutResult> {
-  const platform = detectPlatform();
-  try {
-    const target = await findUiJson(platform);
-    if (!target || !target.exists) {
-      return { success: true, message: "No WordCraft settings file was found, so there was nothing to remove." };
-    }
-    const blocked = await checkWordCraftClosed(platform, options, "Remove");
-    if (blocked) return blocked;
-    setPref("wordcraftShortcutKeep", false);
-    stopWordCraftShortcutKeeper();
-    const original = await IOUtils.readUTF8(target.path);
-    const rewrite = removeShortcutFromUiJson(original);
-    if (!rewrite.changed) {
-      return { success: true, message: "No InstantCite shortcut was found in WordCraft." };
-    }
-    await writeWithBackup(target.path, original, rewrite.text);
-    return { success: true, message: "WordCraft shortcut removed." };
-  } catch (err) {
-    return { success: false, message: "Removal failed: " + err };
-  }
+export async function uninstallWordCraftShortcut(): Promise<ShortcutResult> {
+  setPref("wordcraftShortcutKeep", false);
+  stopWordCraftHotkey();
+  void removeLegacyBinding();
+  return { success: true, message: "WordCraft shortcut turned off." };
 }
 
-// --- Keeper ---
-
-const KEEPER_INTERVAL_MS = 1000;
-let keeperTimer: ReturnType<typeof setInterval> | null = null;
-let keeperBusy = false;
-let keeperSeenMtime: number | null = null;
-
-/** Watch ui.json and keep the installed shortcut in it (no-op until Install Shortcut was used). */
-export function startWordCraftShortcutKeeper(): void {
-  stopWordCraftShortcutKeeper();
-  if (!getPref<boolean>("wordcraftShortcutKeep")) return;
-  void keepWordCraftShortcut();
-  keeperTimer = setInterval(() => void keepWordCraftShortcut(), KEEPER_INTERVAL_MS);
+/** Start the shortcut helper at Zotero startup when the shortcut is on. */
+export async function startWordCraftShortcut(): Promise<void> {
+  if (await startWordCraftHotkey()) void removeLegacyBinding();
 }
 
-export function stopWordCraftShortcutKeeper(): void {
-  if (keeperTimer !== null) clearInterval(keeperTimer);
-  keeperTimer = null;
-  keeperSeenMtime = null;
+export function stopWordCraftShortcut(): void {
+  stopWordCraftHotkey();
 }
 
 /**
- * One keeper pass: when ui.json changed since the last pass and lacks the
- * binding, add it back. Resolves true when the file was rewritten. A key the
- * user bound to another command in WordCraft afterwards is left alone; a
- * built-in command on the key is overridden, as Install did.
+ * Drop the ui.json binding written by earlier versions. Only while WordCraft
+ * is closed: it would write the binding it loaded back on exit.
  */
-export async function keepWordCraftShortcut(platform: InstantCitePlatform = detectPlatform()): Promise<boolean> {
-  if (keeperBusy || !getPref<boolean>("wordcraftShortcutKeep")) return false;
-  keeperBusy = true;
+export async function removeLegacyBinding(platform: InstantCitePlatform = detectPlatform()): Promise<boolean> {
   try {
-    const key = toWordCraftKey(getPref<string>("wordcraftShortcut") || getDefaultWordCraftShortcut(), platform);
-    if (!key) return false;
     const target = await findUiJson(platform);
-    if (!target?.exists) return false;
-    const mtime = (await IOUtils.stat(target.path)).lastModified ?? null;
-    if (mtime !== null && mtime === keeperSeenMtime) return false;
-
-    const rewrite = addShortcutToUiJson(await IOUtils.readUTF8(target.path), key);
-    if (rewrite.changed && !rewrite.conflict) {
-      await IOUtils.writeUTF8(target.path, rewrite.text, { tmpPath: target.path + ".tmp" });
-      keeperSeenMtime = (await IOUtils.stat(target.path)).lastModified ?? null;
-      try { Zotero.debug(`[InstantCite WordCraft] Put shortcut ${key} back into ${target.path}`); } catch { /* ignore */ }
-      return true;
-    }
-    keeperSeenMtime = mtime;
-    return false;
+    if (!target?.exists || await isWordCraftRunning(platform) !== false) return false;
+    const original = await IOUtils.readUTF8(target.path);
+    const rewrite = removeShortcutFromUiJson(original);
+    if (!rewrite.changed) return false;
+    await writeWithBackup(target.path, original, rewrite.text);
+    try { Zotero.debug(`[InstantCite WordCraft] Removed the old shortcut entry from ${target.path}`); } catch { /* ignore */ }
+    return true;
   } catch (err) {
-    // A half-written or unreadable file: keeperSeenMtime is not advanced, so the next pass retries.
-    logError("keeper", err);
+    logError("removing the old ui.json shortcut", err);
     return false;
-  } finally {
-    keeperBusy = false;
   }
 }

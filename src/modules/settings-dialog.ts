@@ -166,8 +166,9 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
     const wordDesc = doc.createElement("div");
     wordDesc.className = "settings-description";
     wordDesc.textContent =
-      "Install a keyboard shortcut in WordCraft that triggers Zotero Add/Edit Citation. " +
-      "WordCraft must be closed while the shortcut is installed; it picks the shortcut up on its next start.";
+      "A keyboard shortcut for Zotero Add/Edit Citation in WordCraft, which has no keyboard setting " +
+      "for its Zotero commands. While Zotero runs, a small helper presses the ribbon button for you " +
+      "whenever WordCraft is in front; other programs keep the key.";
     wordSection.appendChild(wordDesc);
 
     // Shortcut input row
@@ -215,15 +216,9 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       installBtn.textContent = "Installing...";
       wordStatus.textContent = "";
       try {
-        let res = await installWordCraftShortcut(shortcut);
-        if (res.needsClosedConfirmation && confirmWordCraftClosed(doc, res.message)) {
-          res = await installWordCraftShortcut(shortcut, { assumeClosed: true });
-        }
+        const res = await installWordCraftShortcut(shortcut);
         wordStatus.textContent = res.message;
         wordStatus.style.color = res.success ? "#4caf50" : "#f44336";
-        if (res.success) {
-          setPref("wordcraftShortcut", shortcut);
-        }
         if (res.showManual) {
           manualBtn.style.display = "";
         }
@@ -241,10 +236,7 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       removeBtn.textContent = "Removing...";
       wordStatus.textContent = "";
       try {
-        let res = await uninstallWordCraftShortcut();
-        if (res.needsClosedConfirmation && confirmWordCraftClosed(doc, res.message)) {
-          res = await uninstallWordCraftShortcut({ assumeClosed: true });
-        }
+        const res = await uninstallWordCraftShortcut();
         wordStatus.textContent = res.message;
         wordStatus.style.color = res.success ? "#4caf50" : "#f44336";
       } catch (err) {
@@ -257,8 +249,7 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
 
     manualBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const shortcut = shortcutInput.value.trim() || wordcraftDefaultShortcut;
-      wordStatus.textContent = getWordCraftManualInstructions(shortcut);
+      wordStatus.textContent = getWordCraftManualInstructions();
       wordStatus.style.color = "";
     });
 
@@ -341,14 +332,6 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       saveAndClose();
     }
   });
-}
-
-function confirmWordCraftClosed(doc: Document, message: string): boolean {
-  try {
-    return Services.prompt.confirm(doc.defaultView as any, "Instant Cite for WordCraft", message);
-  } catch {
-    return false;
-  }
 }
 
 function createSeparator(doc: Document): HTMLElement {

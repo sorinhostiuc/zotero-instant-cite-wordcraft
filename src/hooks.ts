@@ -4,7 +4,7 @@ import { runFixerWithUI, runAuthorRestoreWithUI } from "./modules/creator-fixer"
 import { runDoiFixerWithUI } from "./modules/doi-fixer-dialog";
 import { runBatchAutoUpdateWithUI } from "./modules/auto-updater";
 import { updateSelectedItems } from "./modules/item-updater";
-import { startWordCraftShortcutKeeper, stopWordCraftShortcutKeeper } from "./modules/wordcraft-shortcut";
+import { startWordCraftShortcut, stopWordCraftShortcut } from "./modules/wordcraft-shortcut";
 
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
@@ -22,7 +22,7 @@ async function onStartup() {
   await Zotero.initializationPromise;
 
   patchCitationDialog();
-  startWordCraftShortcutKeeper();
+  void startWordCraftShortcut();
   Zotero.log("[InstantCite WordCraft] Plugin started");
 
   // Zotero 9 may fire onMainWindowLoad before startup() finishes.
@@ -60,7 +60,7 @@ async function onStartup() {
 
 function onShutdown() {
   unpatchCitationDialog();
-  stopWordCraftShortcutKeeper();
+  stopWordCraftShortcut();
   // Clean up UI elements from main window
   try {
     const mainWin = Zotero.getMainWindow();

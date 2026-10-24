@@ -48,10 +48,10 @@ const DEFAULTS: Record<string, string | number | boolean> = {
   // Default sort direction: "desc" or "asc"
   "defaultSortDir": "desc",
 
-  // WordCraft shortcut bound to Zotero's Add/Edit Citation command
+  // WordCraft shortcut for Zotero's Add/Edit Citation command
   "wordcraftShortcut": "Ctrl+Shift+I",
 
-  // Keep that shortcut in WordCraft's ui.json (set by Install Shortcut, cleared by Remove)
+  // Run the helper that holds that shortcut (set by Install Shortcut, cleared by Remove)
   "wordcraftShortcutKeep": false,
 
   // AutoUpdate mode: "silent", "preview", "hybrid"
@@ -71,7 +71,7 @@ export function getDefaultWordCraftShortcut(platform: InstantCitePlatform = dete
 
 function getDefaultValue(name: string): string | number | boolean {
   if (name === "wordcraftShortcut") return getDefaultWordCraftShortcut();
-  // Before the keeper existed, a successful Install only left the wordcraftShortcut pref behind
+  // Before this pref existed, a successful Install only left the wordcraftShortcut pref behind
   if (name === "wordcraftShortcutKeep") return hasUserValue("wordcraftShortcut");
   return DEFAULTS[name];
 }

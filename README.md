@@ -15,7 +15,7 @@ search your library and online sources, add a paper to Zotero and cite it in one
 - Shows authors, publication, year, DOI, and abstract before you cite.
 - Can locate an open-access PDF when one is available.
 - Inserts citations in WordCraft and keeps the bibliography linked to Zotero.
-- Installs a WordCraft keyboard shortcut (default Ctrl+Shift+I, Cmd+Shift+I on macOS) for Add/Edit Citation.
+- Gives WordCraft's Zotero Add/Edit Citation a keyboard shortcut (default Ctrl+Shift+I, Windows).
 
 ## How WordCraft is recognised
 
@@ -45,14 +45,19 @@ the original Instant Cite. With both installed:
 Open Instant Cite from Zotero (**Tools > Instant Cite (WordCraft) - Search Papers**), open the
 settings and use **WordCraft Integration > Install Shortcut**.
 
-- Close WordCraft first. WordCraft reads shortcuts only at startup and rewrites its settings file while it runs,
-  so the installer refuses to write while it is open. When the process check is unavailable, it asks you to
-  confirm that WordCraft is closed instead of writing blindly.
-- The shortcut is stored in WordCraft's `ui.json` (Windows: `%APPDATA%\WordCraft\ui.json`) as
-  `"keyboard": {"assigned": {"Mod+Shift+I": "ui.zotero.addEditCitation"}}`. A backup is saved
-  next to it as `ui.json.instantcitewc.bak`.
-- Built-in WordCraft shortcuts (for example Ctrl+Shift+Z for Redo or Alt+Shift+I for Mark Citation) are rejected.
-- **Manual Setup** shows how to assign the shortcut through WordCraft's Customize Keyboard dialog instead.
+WordCraft 0.10.0 has no keyboard setting for its Zotero commands (they are ribbon buttons only and are
+missing from Customize Keyboard), so the shortcut is held by a small helper program instead (Windows only):
+
+- `helper/WordCraftCite.cs`, built into `addon/chrome/content/helper/WordCraftCite.exe` by `helper/build.cmd`
+  with the .NET Framework compiler that ships with Windows. Zotero copies it into
+  `<profile>/instantcitewc/` and starts it with its own process id; the helper exits with Zotero.
+- While a WordCraft window is in the foreground the helper registers the hotkey. On the key it opens the
+  Zotero ribbon tab, presses **Add/Edit Citation** through UI Automation and switches back to the tab that
+  was open. In every other program the key keeps its usual meaning.
+- Log: `<profile>/instantcitewc/wordcraft-helper.log`. `WordCraftCite.exe --probe` lists WordCraft's ribbon
+  tabs without pressing anything.
+- Versions up to 0.2.3 wrote the key into WordCraft's `ui.json`, which WordCraft loads but never fires. That
+  entry is removed (with a `ui.json.instantcitewc.bak` backup) the next time WordCraft is closed while Zotero runs.
 
 ## Installation
 
