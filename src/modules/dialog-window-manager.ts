@@ -42,21 +42,58 @@ export function clearPersistentDialogWindow(win?: Window) {
   }
 }
 
+/**
+ * Zotero.Utilities.Internal.activate() brings the Zotero process forward on
+ * macOS (Carbon) and X11; it registers a one-shot `load` listener for the
+ * Carbon call, so it must run *before* the window finishes loading. On Windows
+ * it does nothing, which is why citation windows also get the `alwaysRaised`
+ * feature and a focus() once loaded.
+ */
+function activateWindow(win: Window) {
+  try {
+    if (typeof Zotero !== "undefined") (Zotero as any)?.Utilities?.Internal?.activate?.(win);
+  } catch { /* ignore */ }
+}
+
+/** Raise an already loaded window to the foreground. */
+function bringToForeground(win: Window) {
+  activateWindow(win);
+  try { win.focus(); } catch { /* ignore */ }
+}
+
+/**
+ * Open a new dialog window, cache it, and wire up its lifecycle. The window is
+ * raised to the foreground, because a window opened while another app (Word,
+ * LibreOffice, WordCraft) is frontmost otherwise loads behind it.
+ */
+function createDialogWindow(
+  mainWindow: Window & { openDialog: (...args: any[]) => Window },
+  onLoad: (win: Window) => void,
+  raised = false,
+): DialogWindow {
+  const win = mainWindow.openDialog(DIALOG_URL, DIALOG_NAME, getDialogFeatures(raised)) as DialogWindow;
+  persistentDialogWindow = win;
+  // Before load: activate() needs to hook the window's load event itself.
+  activateWindow(win);
+  win.addEventListener("load", () => {
+    try { win.focus(); } catch { /* ignore */ }
+    onLoad(win);
+  }, { once: true } as any);
+  win.addEventListener("unload", () => clearPersistentDialogWindow(win), { once: true } as any);
+  return win;
+}
+
 export function openOrReuseDialogWindow(
   mainWindow: Window & { openDialog: (...args: any[]) => Window },
   onLoad: (win: Window) => void,
 ): Window {
   const existing = getPersistentDialogWindow();
   if (existing) {
-    try { existing.focus(); } catch { /* ignore */ }
+    bringToForeground(existing);
     return existing;
   }
 
-  const win = mainWindow.openDialog(DIALOG_URL, DIALOG_NAME, getDialogFeatures()) as DialogWindow;
-  persistentDialogWindow = win;
-  win.addEventListener("load", () => onLoad(win), { once: true } as any);
-  win.addEventListener("unload", () => clearPersistentDialogWindow(win), { once: true } as any);
-  return win;
+  return createDialogWindow(mainWindow, onLoad);
 }
 
 export function openFreshDialogWindow(
@@ -70,11 +107,7 @@ export function openFreshDialogWindow(
     try { existing.close(); } catch { /* ignore */ }
   }
 
-  const win = mainWindow.openDialog(DIALOG_URL, DIALOG_NAME, getDialogFeatures(options.raised)) as DialogWindow;
-  persistentDialogWindow = win;
-  win.addEventListener("load", () => onLoad(win), { once: true } as any);
-  win.addEventListener("unload", () => clearPersistentDialogWindow(win), { once: true } as any);
-  return win;
+  return createDialogWindow(mainWindow, onLoad, options.raised);
 }
 
 export function sendDialogToBackground(win: Window) {
