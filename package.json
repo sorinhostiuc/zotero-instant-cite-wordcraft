@@ -1,6 +1,6 @@
 {
   "name": "zotero-instant-cite-wordcraft",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "InstantCite search-and-cite dialog for the WordCraft word processor",
   "repository": {
     "type": "git",

@@ -215,7 +215,10 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       installBtn.textContent = "Installing...";
       wordStatus.textContent = "";
       try {
-        const res = await installWordCraftShortcut(shortcut);
+        let res = await installWordCraftShortcut(shortcut);
+        if (res.needsClosedConfirmation && confirmWordCraftClosed(doc, res.message)) {
+          res = await installWordCraftShortcut(shortcut, { assumeClosed: true });
+        }
         wordStatus.textContent = res.message;
         wordStatus.style.color = res.success ? "#4caf50" : "#f44336";
         if (res.success) {
@@ -238,7 +241,10 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       removeBtn.textContent = "Removing...";
       wordStatus.textContent = "";
       try {
-        const res = await uninstallWordCraftShortcut();
+        let res = await uninstallWordCraftShortcut();
+        if (res.needsClosedConfirmation && confirmWordCraftClosed(doc, res.message)) {
+          res = await uninstallWordCraftShortcut({ assumeClosed: true });
+        }
         wordStatus.textContent = res.message;
         wordStatus.style.color = res.success ? "#4caf50" : "#f44336";
       } catch (err) {
@@ -335,6 +341,14 @@ export function openSettingsDialog(doc: Document, onClose?: () => void) {
       saveAndClose();
     }
   });
+}
+
+function confirmWordCraftClosed(doc: Document, message: string): boolean {
+  try {
+    return Services.prompt.confirm(doc.defaultView as any, "Instant Cite for WordCraft", message);
+  } catch {
+    return false;
+  }
 }
 
 function createSeparator(doc: Document): HTMLElement {

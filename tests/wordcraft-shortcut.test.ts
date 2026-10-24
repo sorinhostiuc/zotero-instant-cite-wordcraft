@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setSubprocessRunner } from "../src/modules/wordcraft-detector";
 import {
   addShortcutToUiJson,
   getDefaultBindingConflict,
+  isWordCraftRunning,
   processListHasWordCraft,
   removeShortcutFromUiJson,
   toWordCraftKey,
@@ -101,5 +103,21 @@ describe("running WordCraft detection", () => {
     expect(processListHasWordCraft("\"zotero.exe\",\"1\",\"Console\",\"1\",\"1 K\"")).toBe(false);
     expect(processListHasWordCraft("/usr/bin/zsh\n/Applications/WordCraft.app/Contents/MacOS/WordCraft")).toBe(true);
     expect(processListHasWordCraft("/usr/bin/zsh\nsoffice")).toBe(false);
+  });
+
+  afterEach(() => setSubprocessRunner(null));
+
+  it("finds WordCraft in the process list", async () => {
+    setSubprocessRunner(vi.fn(async () => "\"System\",\"4\"\r\n\"wordcraft.exe\",\"30336\"\r\n"));
+    expect(await isWordCraftRunning("windows")).toBe(true);
+    setSubprocessRunner(vi.fn(async () => "/usr/bin/zsh\n"));
+    expect(await isWordCraftRunning("linux")).toBe(false);
+  });
+
+  it("reports an unknown state instead of 'not running' when the check fails", async () => {
+    setSubprocessRunner(vi.fn(async () => { throw new Error("spawn failed"); }));
+    expect(await isWordCraftRunning("linux")).toBeNull();
+    // On Windows the cmd.exe fallback needs XPCOM, which is missing here, so the state stays unknown.
+    expect(await isWordCraftRunning("windows")).toBeNull();
   });
 });

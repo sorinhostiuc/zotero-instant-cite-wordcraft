@@ -45,7 +45,9 @@ the original Instant Cite. With both installed:
 Open Instant Cite from Zotero (**Tools > Instant Cite (WordCraft) - Search Papers**), open the
 settings and use **WordCraft Integration > Install Shortcut**.
 
-- Close WordCraft first. WordCraft rewrites its settings file while it runs, so the installer refuses to write while it is open.
+- Close WordCraft first. WordCraft reads shortcuts only at startup and rewrites its settings file while it runs,
+  so the installer refuses to write while it is open. When the process check is unavailable, it asks you to
+  confirm that WordCraft is closed instead of writing blindly.
 - The shortcut is stored in WordCraft's `ui.json` (Windows: `%APPDATA%\WordCraft\ui.json`) as
   `"keyboard": {"assigned": {"Mod+Shift+I": "ui.zotero.addEditCitation"}}`. A backup is saved
   next to it as `ui.json.instantcitewc.bak`.

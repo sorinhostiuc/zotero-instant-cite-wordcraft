@@ -195,6 +195,38 @@ export interface ShortcutResult {
   success: boolean;
   message: string;
   showManual?: boolean;
+  /** WordCraft's state is unknown; retry with `assumeClosed` once the user confirms it is closed. */
+  needsClosedConfirmation?: boolean;
+}
+
+export interface ShortcutOptions {
+  /** The user confirmed WordCraft is closed (used when the process check is unavailable). */
+  assumeClosed?: boolean;
+}
+
+const RUNNING_STATE_UNKNOWN =
+  "Could not check whether WordCraft is running. WordCraft overwrites its settings on exit, " +
+  "so a shortcut written while it is open is lost.";
+
+async function checkWordCraftClosed(
+  platform: InstantCitePlatform,
+  options: ShortcutOptions,
+  retryLabel: string,
+): Promise<ShortcutResult | null> {
+  if (options.assumeClosed) return null;
+  const running = await isWordCraftRunning(platform);
+  if (running === false) return null;
+  if (running) {
+    return {
+      success: false,
+      message: `WordCraft is running. Close WordCraft completely (it overwrites its settings on exit), then click ${retryLabel} again.`,
+    };
+  }
+  return {
+    success: false,
+    message: RUNNING_STATE_UNKNOWN + "\n\nIs WordCraft closed right now?",
+    needsClosedConfirmation: true,
+  };
 }
 
 // --- Pure helpers (unit tested) ---
@@ -371,15 +403,51 @@ async function findUiJson(platform: InstantCitePlatform): Promise<{ path: string
 export async function isWordCraftRunning(platform: InstantCitePlatform = detectPlatform()): Promise<boolean | null> {
   try {
     if (platform === "windows") {
-      let root = "";
-      try { root = Services.env.get("SystemRoot"); } catch { /* default below */ }
-      const out = await runSubprocess(`${root || "C:\\Windows"}\\System32\\tasklist.exe`, ["/FO", "CSV", "/NH"]);
+      const out = await runSubprocess(getSystem32Exe("tasklist.exe"), ["/FO", "CSV", "/NH"]);
       return processListHasWordCraft(out);
     }
     return processListHasWordCraft(await runSubprocess("/bin/ps", ["-A", "-o", "comm="]));
-  } catch {
+  } catch (err) {
+    logError("process list failed", err);
+  }
+  if (platform !== "windows") return null;
+  try {
+    // Fallback without stdout pipes: findstr's exit code says whether the name was listed.
+    if (await runHiddenCmd(["tasklist", "/NH", "|", "findstr", "/I", "wordcraft"]) === 0) return true;
+    // "System" is always listed, so a miss here means tasklist itself did not work.
+    return await runHiddenCmd(["tasklist", "/NH", "|", "findstr", "/I", "/B", "System"]) === 0 ? false : null;
+  } catch (err) {
+    logError("cmd.exe fallback failed", err);
     return null;
   }
+}
+
+function getSystem32Exe(name: string): string {
+  let root = "";
+  try { root = Services.env.get("SystemRoot"); } catch { /* default below */ }
+  return `${root || "C:\\Windows"}\\System32\\${name}`;
+}
+
+function logError(what: string, err: unknown) {
+  try { Zotero.logError(`InstantCite for WordCraft: WordCraft check, ${what}: ${err}`); } catch { /* ignore */ }
+}
+
+/** Run `cmd.exe /d /c <args>` without a console window and resolve with its exit code. */
+function runHiddenCmd(args: string[]): Promise<number> {
+  const exe = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+  exe.initWithPath(getSystem32Exe("cmd.exe"));
+  const proc = Components.classes["@mozilla.org/process/util;1"].createInstance(Components.interfaces.nsIProcess);
+  proc.init(exe);
+  proc.startHidden = true;
+  return new Promise((resolve, reject) => {
+    const cmdArgs = ["/d", "/c", ...args];
+    proc.runwAsync(cmdArgs, cmdArgs.length, {
+      observe: (_subject: unknown, topic: string) => {
+        if (topic === "process-finished") resolve(proc.exitValue);
+        else reject(new Error(topic));
+      },
+    } as any);
+  });
 }
 
 async function writeWithBackup(path: string, original: string | null, text: string): Promise<void> {
@@ -401,6 +469,7 @@ export function getWordCraftManualInstructions(shortcut = getDefaultWordCraftSho
 
 export async function installWordCraftShortcut(
   shortcut = getPref<string>("wordcraftShortcut") || getDefaultWordCraftShortcut(),
+  options: ShortcutOptions = {},
 ): Promise<ShortcutResult> {
   const platform = detectPlatform();
   const key = toWordCraftKey(shortcut, platform);
@@ -428,12 +497,8 @@ export async function installWordCraftShortcut(
       };
     }
 
-    if (await isWordCraftRunning(platform)) {
-      return {
-        success: false,
-        message: "WordCraft is running. Close WordCraft (it overwrites its settings on exit), then click Install Shortcut again.",
-      };
-    }
+    const blocked = await checkWordCraftClosed(platform, options, "Install Shortcut");
+    if (blocked) return blocked;
 
     const original = target.exists ? await IOUtils.readUTF8(target.path) : null;
     const rewrite = addShortcutToUiJson(original ?? "", key);
@@ -441,7 +506,11 @@ export async function installWordCraftShortcut(
       return { success: false, message: "Installation failed: " + rewrite.conflict + ".", showManual: true };
     }
     if (!rewrite.changed) {
-      return { success: true, message: `WordCraft shortcut ${key} is already installed.` };
+      return {
+        success: true,
+        message: `WordCraft shortcut ${key} is already in WordCraft's settings. ` +
+          "If it does not work, close WordCraft completely and start it again: it reads shortcuts only at startup.",
+      };
     }
     await writeWithBackup(target.path, original, rewrite.text);
     return {
@@ -456,16 +525,15 @@ export async function installWordCraftShortcut(
   }
 }
 
-export async function uninstallWordCraftShortcut(): Promise<ShortcutResult> {
+export async function uninstallWordCraftShortcut(options: ShortcutOptions = {}): Promise<ShortcutResult> {
   const platform = detectPlatform();
   try {
     const target = await findUiJson(platform);
     if (!target || !target.exists) {
       return { success: true, message: "No WordCraft settings file was found, so there was nothing to remove." };
     }
-    if (await isWordCraftRunning(platform)) {
-      return { success: false, message: "WordCraft is running. Close WordCraft, then click Remove again." };
-    }
+    const blocked = await checkWordCraftClosed(platform, options, "Remove");
+    if (blocked) return blocked;
     const original = await IOUtils.readUTF8(target.path);
     const rewrite = removeShortcutFromUiJson(original);
     if (!rewrite.changed) {
