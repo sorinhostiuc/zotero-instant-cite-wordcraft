@@ -18,8 +18,7 @@ export default defineConfig({
   dist: ".scaffold/build",
   build: {
     assets: "addon/**/*.*",
-    // addon/manifest.json is complete; the generated one would add an update_url
-    // pointing at a GitHub release this plugin does not publish.
+    // addon/manifest.json is complete (ID, update_url, Zotero version range).
     makeManifest: { enable: false },
     define: {
       addonName: pkg.config.addonName,

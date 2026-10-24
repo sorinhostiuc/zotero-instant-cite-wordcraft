@@ -58,7 +58,7 @@ settings and use **WordCraft Integration > Install Shortcut**.
 2. In Zotero, open **Tools > Plugins**.
 3. Choose **Install Plugin From File**, select the `.xpi`, and restart Zotero if asked.
 
-Supports Zotero 7 through 9 on Windows, macOS, and Linux. WordCraft needs its Zotero
+Supports Zotero 7 and later, including Zotero 10, on Windows, macOS, and Linux. WordCraft needs its Zotero
 integration enabled (the Zotero tab in its ribbon).
 
 ## Development

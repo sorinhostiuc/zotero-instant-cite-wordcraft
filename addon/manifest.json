@@ -11,8 +11,9 @@
   "applications": {
     "zotero": {
       "id": "instantcite-wordcraft@sorin.hostiuc",
+      "update_url": "https://github.com/sorinhostiuc/zotero-instant-cite-wordcraft/releases/download/release/update.json",
       "strict_min_version": "6.999",
-      "strict_max_version": "9.*"
+      "strict_max_version": "10000000.*"
     }
   }
 }

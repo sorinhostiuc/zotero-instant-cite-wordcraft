@@ -1,10 +1,10 @@
 {
   "name": "zotero-instant-cite-wordcraft",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "InstantCite search-and-cite dialog for the WordCraft word processor",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sorinhost/InstantCiteWordCraft.git"
+    "url": "https://github.com/sorinhostiuc/zotero-instant-cite-wordcraft.git"
   },
   "config": {
     "addonName": "Zotero Instant Cite for WordCraft",
