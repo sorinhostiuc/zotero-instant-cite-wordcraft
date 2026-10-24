@@ -167,6 +167,15 @@ function createIntegrationCommandWindow(win: Window): IntegrationCommandWindow {
   return commandWindow;
 }
 
+function bringToForeground(win: Window) {
+  const activate = () => {
+    try { (Zotero as any).Utilities?.Internal?.activate?.(win); } catch { /* ignore */ }
+    try { win.focus(); } catch { /* ignore */ }
+  };
+  activate();
+  try { win.addEventListener("load", activate, { once: true } as any); } catch { /* ignore */ }
+}
+
 function registerZoteroIntegrationWindow(win: Window) {
   const integration = (Zotero as any).Integration;
   if (!integration) return;
@@ -273,7 +282,8 @@ export function openSearchDialogForCitation(
   const mainWindow = Zotero.getMainWindow();
   if (!mainWindow) { onCancel(); return; }
 
-  const win = openFreshDialogWindow(mainWindow as MainWindowWithOpenDialog, initDialogEvents);
+  const win = openFreshDialogWindow(mainWindow as MainWindowWithOpenDialog, initDialogEvents, { raised: true });
+  bringToForeground(win);
 
   // Set integration state
   integrationIO = io;

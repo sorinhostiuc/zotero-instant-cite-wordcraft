@@ -9,9 +9,23 @@ const DIALOG_NAME = "instantcitewc-search";
 
 let persistentDialogWindow: DialogWindow | null = null;
 
-function getDialogFeatures(): string {
+function getDialogFeatures(raised = false): string {
   const { width, height } = getSearchDialogWindowSize();
-  return `chrome,centerscreen,resizable=yes,width=${width},height=${height}`;
+  const features = `chrome,centerscreen,resizable=yes,width=${width},height=${height}`;
+  return raised ? `${features},${getCitationRaiseFeature()}` : features;
+}
+
+/**
+ * Same raise mode Zotero uses for its own citation dialog, so the window shows
+ * above the word processor even when Windows refuses Zotero the foreground.
+ */
+export function getCitationRaiseFeature(): string {
+  try {
+    if (!Zotero.isMac && Zotero.Prefs.get("integration.keepAddCitationDialogRaised")) {
+      return "popup";
+    }
+  } catch { /* ignore */ }
+  return "alwaysRaised";
 }
 
 function isLiveDialogWindow(win: DialogWindow | null): win is DialogWindow {
@@ -48,6 +62,7 @@ export function openOrReuseDialogWindow(
 export function openFreshDialogWindow(
   mainWindow: Window & { openDialog: (...args: any[]) => Window },
   onLoad: (win: Window) => void,
+  options: { raised?: boolean } = {},
 ): Window {
   const existing = getPersistentDialogWindow();
   if (existing) {
@@ -55,7 +70,7 @@ export function openFreshDialogWindow(
     try { existing.close(); } catch { /* ignore */ }
   }
 
-  const win = mainWindow.openDialog(DIALOG_URL, DIALOG_NAME, getDialogFeatures()) as DialogWindow;
+  const win = mainWindow.openDialog(DIALOG_URL, DIALOG_NAME, getDialogFeatures(options.raised)) as DialogWindow;
   persistentDialogWindow = win;
   win.addEventListener("load", () => onLoad(win), { once: true } as any);
   win.addEventListener("unload", () => clearPersistentDialogWindow(win), { once: true } as any);

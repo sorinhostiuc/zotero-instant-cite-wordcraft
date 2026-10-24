@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetPersistentDialogWindowForTests,
   clearPersistentDialogWindow,
+  getCitationRaiseFeature,
   getPersistentDialogWindow,
   openFreshDialogWindow,
   openOrReuseDialogWindow,
@@ -114,6 +115,25 @@ describe("dialog-window-manager", () => {
       "instantcitewc-search",
       "chrome,centerscreen,resizable=yes,width=920,height=640",
     );
+  });
+
+  it("raises citation windows like Zotero's own citation dialog", () => {
+    const mainWin = { openDialog: vi.fn(() => ({ addEventListener: vi.fn(), closed: false })) };
+    const prefs: Record<string, unknown> = {};
+    const globalWithZotero = globalThis as typeof globalThis & { Zotero?: any };
+    globalWithZotero.Zotero = { isMac: false, Prefs: { get: vi.fn((name: string) => prefs[name]) } };
+
+    openFreshDialogWindow(mainWin as any, vi.fn(), { raised: true });
+    expect(mainWin.openDialog).toHaveBeenLastCalledWith(
+      "chrome://instantcitewc/content/instantcite.xhtml",
+      "instantcitewc-search",
+      "chrome,centerscreen,resizable=yes,width=1050,height=800,alwaysRaised",
+    );
+
+    prefs["integration.keepAddCitationDialogRaised"] = true;
+    expect(getCitationRaiseFeature()).toBe("popup");
+    globalWithZotero.Zotero.isMac = true;
+    expect(getCitationRaiseFeature()).toBe("alwaysRaised");
   });
 
 });
