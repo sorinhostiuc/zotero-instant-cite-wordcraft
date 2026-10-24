@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setSubprocessRunner } from "../src/modules/wordcraft-detector";
 import {
   addShortcutToUiJson,
   getDefaultBindingConflict,
   isWordCraftRunning,
+  keepWordCraftShortcut,
   processListHasWordCraft,
   removeShortcutFromUiJson,
+  stopWordCraftShortcutKeeper,
   toWordCraftKey,
   WORDCRAFT_CITATION_COMMAND,
 } from "../src/modules/wordcraft-shortcut";
@@ -119,5 +121,86 @@ describe("running WordCraft detection", () => {
     expect(await isWordCraftRunning("linux")).toBeNull();
     // On Windows the cmd.exe fallback needs XPCOM, which is missing here, so the state stays unknown.
     expect(await isWordCraftRunning("windows")).toBeNull();
+  });
+});
+
+describe("shortcut keeper", () => {
+  const UI_PATH = "C:/AppData/WordCraft/ui.json";
+  let files: Map<string, { text: string; mtime: number }>;
+  let prefs: Map<string, unknown>;
+  let clock: number;
+
+  function wordCraftRewrites(text: string) {
+    files.set(UI_PATH, { text, mtime: ++clock });
+  }
+
+  function assigned(): Record<string, string> {
+    return JSON.parse(files.get(UI_PATH)!.text).keyboard.assigned;
+  }
+
+  beforeEach(() => {
+    files = new Map();
+    prefs = new Map([
+      ["wordcraftShortcut", "Ctrl+Shift+I"],
+      ["wordcraftShortcutKeep", true],
+    ]);
+    clock = 0;
+    wordCraftRewrites(UI_JSON);
+    vi.stubGlobal("Zotero", {
+      Prefs: { get: (name: string) => prefs.get(name.replace(/^.*InstantCiteWordCraft\./, "")) },
+      debug: () => {},
+      logError: () => {},
+    });
+    vi.stubGlobal("Components", { interfaces: { nsIFile: {} } });
+    vi.stubGlobal("Services", {
+      dirsvc: { get: (key: string) => ({ path: key === "AppData" ? "C:/AppData" : "C:/Home" }) },
+      env: { get: () => "" },
+    });
+    vi.stubGlobal("PathUtils", { join: (...parts: string[]) => parts.join("/") });
+    vi.stubGlobal("IOUtils", {
+      exists: async (path: string) => files.has(path),
+      stat: async (path: string) => ({ lastModified: files.get(path)!.mtime }),
+      readUTF8: async (path: string) => files.get(path)!.text,
+      writeUTF8: async (path: string, text: string) => { files.set(path, { text, mtime: ++clock }); },
+    });
+  });
+
+  afterEach(() => {
+    stopWordCraftShortcutKeeper();
+    vi.unstubAllGlobals();
+  });
+
+  it("puts the binding back each time WordCraft rewrites ui.json without it", async () => {
+    expect(await keepWordCraftShortcut("windows")).toBe(true);
+    expect(assigned()).toEqual({ "Mod+Shift+I": WORDCRAFT_CITATION_COMMAND });
+    expect(await keepWordCraftShortcut("windows")).toBe(false);
+
+    wordCraftRewrites(UI_JSON); // WordCraft closes and saves the settings it loaded without the key
+    expect(await keepWordCraftShortcut("windows")).toBe(true);
+    expect(assigned()).toEqual({ "Mod+Shift+I": WORDCRAFT_CITATION_COMMAND });
+  });
+
+  it("does nothing until the shortcut was installed", async () => {
+    prefs.clear();
+    expect(await keepWordCraftShortcut("windows")).toBe(false);
+    expect(assigned()).toEqual({});
+  });
+
+  it("treats a shortcut saved by an earlier Install as installed", async () => {
+    prefs.delete("wordcraftShortcutKeep");
+    expect(await keepWordCraftShortcut("windows")).toBe(true);
+  });
+
+  it("stops after Remove turned it off", async () => {
+    prefs.set("wordcraftShortcutKeep", false);
+    expect(await keepWordCraftShortcut("windows")).toBe(false);
+    expect(assigned()).toEqual({});
+  });
+
+  it("leaves a key the user bound to another command alone", async () => {
+    const taken = JSON.stringify({ keyboard: { assigned: { "Mod+Shift+I": "format.italic" }, removed: [] } });
+    wordCraftRewrites(taken);
+    expect(await keepWordCraftShortcut("windows")).toBe(false);
+    expect(files.get(UI_PATH)!.text).toBe(taken);
   });
 });

@@ -51,6 +51,9 @@ const DEFAULTS: Record<string, string | number | boolean> = {
   // WordCraft shortcut bound to Zotero's Add/Edit Citation command
   "wordcraftShortcut": "Ctrl+Shift+I",
 
+  // Keep that shortcut in WordCraft's ui.json (set by Install Shortcut, cleared by Remove)
+  "wordcraftShortcutKeep": false,
+
   // AutoUpdate mode: "silent", "preview", "hybrid"
   "autoUpdateMode": "hybrid",
 
@@ -68,7 +71,18 @@ export function getDefaultWordCraftShortcut(platform: InstantCitePlatform = dete
 
 function getDefaultValue(name: string): string | number | boolean {
   if (name === "wordcraftShortcut") return getDefaultWordCraftShortcut();
+  // Before the keeper existed, a successful Install only left the wordcraftShortcut pref behind
+  if (name === "wordcraftShortcutKeep") return hasUserValue("wordcraftShortcut");
   return DEFAULTS[name];
+}
+
+function hasUserValue(name: string): boolean {
+  try {
+    const val = Zotero.Prefs.get(key(name));
+    return val !== undefined && val !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function getPref<T extends string | number | boolean>(name: string): T {

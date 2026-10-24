@@ -7,11 +7,14 @@
  *
  *   "keyboard": { "assigned": { "Mod+Shift+I": "ui.zotero.addEditCitation" }, "removed": [] }
  *
- * WordCraft rewrites ui.json while it runs, so the file is only edited while
- * WordCraft is closed; the binding takes effect on its next start.
+ * WordCraft reads ui.json only at startup and writes its in-memory settings
+ * back on exit, which drops a binding added while it was open. Once the
+ * shortcut is installed, a keeper watches ui.json and adds the binding back
+ * whenever WordCraft rewrites the file without it, so the binding is there
+ * at WordCraft's next start whatever order the user closed and installed in.
  */
 
-import { getDefaultWordCraftShortcut, getPref } from "./preferences";
+import { getDefaultWordCraftShortcut, getPref, setPref } from "./preferences";
 import { detectPlatform, type InstantCitePlatform } from "./platform";
 import { runSubprocess } from "./wordcraft-detector";
 
@@ -497,28 +500,27 @@ export async function installWordCraftShortcut(
       };
     }
 
-    const blocked = await checkWordCraftClosed(platform, options, "Install Shortcut");
-    if (blocked) return blocked;
-
     const original = target.exists ? await IOUtils.readUTF8(target.path) : null;
     const rewrite = addShortcutToUiJson(original ?? "", key);
     if (rewrite.conflict) {
       return { success: false, message: "Installation failed: " + rewrite.conflict + ".", showManual: true };
     }
-    if (!rewrite.changed) {
-      return {
-        success: true,
-        message: `WordCraft shortcut ${key} is already in WordCraft's settings. ` +
-          "If it does not work, close WordCraft completely and start it again: it reads shortcuts only at startup.",
-      };
-    }
-    await writeWithBackup(target.path, original, rewrite.text);
+    if (rewrite.changed) await writeWithBackup(target.path, original, rewrite.text);
+    setPref("wordcraftShortcut", shortcut);
+    setPref("wordcraftShortcutKeep", true);
+    startWordCraftShortcutKeeper();
+
+    const running = options.assumeClosed ? false : await isWordCraftRunning(platform);
+    const restart = running === false
+      ? "Start WordCraft and press it to open InstantCite (Zotero must be running)."
+      : "WordCraft reads shortcuts only when it starts: close WordCraft completely and start it again. " +
+        "WordCraft drops the shortcut from its settings when it closes; InstantCite puts it back " +
+        "within a second, as long as Zotero is running.";
     return {
       success: true,
-      message: `Keyboard shortcut ${key} installed in WordCraft.\n\n` +
-        "Start WordCraft and press it to open InstantCite (Zotero must be running).\n" +
+      message: `Keyboard shortcut ${key} installed in WordCraft.\n\n${restart}\n` +
         "Settings file: " + target.path +
-        (original !== null ? "\nBackup: " + target.path + BACKUP_SUFFIX : ""),
+        (rewrite.changed && original !== null ? "\nBackup: " + target.path + BACKUP_SUFFIX : ""),
     };
   } catch (err) {
     return { success: false, message: "Installation failed: " + err, showManual: true };
@@ -534,6 +536,8 @@ export async function uninstallWordCraftShortcut(options: ShortcutOptions = {}):
     }
     const blocked = await checkWordCraftClosed(platform, options, "Remove");
     if (blocked) return blocked;
+    setPref("wordcraftShortcutKeep", false);
+    stopWordCraftShortcutKeeper();
     const original = await IOUtils.readUTF8(target.path);
     const rewrite = removeShortcutFromUiJson(original);
     if (!rewrite.changed) {
@@ -543,5 +547,60 @@ export async function uninstallWordCraftShortcut(options: ShortcutOptions = {}):
     return { success: true, message: "WordCraft shortcut removed." };
   } catch (err) {
     return { success: false, message: "Removal failed: " + err };
+  }
+}
+
+// --- Keeper ---
+
+const KEEPER_INTERVAL_MS = 1000;
+let keeperTimer: ReturnType<typeof setInterval> | null = null;
+let keeperBusy = false;
+let keeperSeenMtime: number | null = null;
+
+/** Watch ui.json and keep the installed shortcut in it (no-op until Install Shortcut was used). */
+export function startWordCraftShortcutKeeper(): void {
+  stopWordCraftShortcutKeeper();
+  if (!getPref<boolean>("wordcraftShortcutKeep")) return;
+  void keepWordCraftShortcut();
+  keeperTimer = setInterval(() => void keepWordCraftShortcut(), KEEPER_INTERVAL_MS);
+}
+
+export function stopWordCraftShortcutKeeper(): void {
+  if (keeperTimer !== null) clearInterval(keeperTimer);
+  keeperTimer = null;
+  keeperSeenMtime = null;
+}
+
+/**
+ * One keeper pass: when ui.json changed since the last pass and lacks the
+ * binding, add it back. Resolves true when the file was rewritten. A key the
+ * user bound to another command in WordCraft is left alone.
+ */
+export async function keepWordCraftShortcut(platform: InstantCitePlatform = detectPlatform()): Promise<boolean> {
+  if (keeperBusy || !getPref<boolean>("wordcraftShortcutKeep")) return false;
+  keeperBusy = true;
+  try {
+    const key = toWordCraftKey(getPref<string>("wordcraftShortcut") || getDefaultWordCraftShortcut(), platform);
+    if (!key || getDefaultBindingConflict(key)) return false;
+    const target = await findUiJson(platform);
+    if (!target?.exists) return false;
+    const mtime = (await IOUtils.stat(target.path)).lastModified ?? null;
+    if (mtime !== null && mtime === keeperSeenMtime) return false;
+
+    const rewrite = addShortcutToUiJson(await IOUtils.readUTF8(target.path), key);
+    if (rewrite.changed && !rewrite.conflict) {
+      await IOUtils.writeUTF8(target.path, rewrite.text, { tmpPath: target.path + ".tmp" });
+      keeperSeenMtime = (await IOUtils.stat(target.path)).lastModified ?? null;
+      try { Zotero.debug(`[InstantCite WordCraft] Put shortcut ${key} back into ${target.path}`); } catch { /* ignore */ }
+      return true;
+    }
+    keeperSeenMtime = mtime;
+    return false;
+  } catch (err) {
+    // A half-written or unreadable file: keeperSeenMtime is not advanced, so the next pass retries.
+    logError("keeper", err);
+    return false;
+  } finally {
+    keeperBusy = false;
   }
 }
