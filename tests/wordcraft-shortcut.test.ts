@@ -98,6 +98,33 @@ describe("ui.json rewriting", () => {
   });
 });
 
+describe("overriding WordCraft bindings", () => {
+  // What WordCraft's own Customize Keyboard writes when it assigns Mod+Alt+I (built-in file.print).
+  const printTakenOver = { assigned: { "Mod+Alt+I": WORDCRAFT_CITATION_COMMAND }, removed: ["Mod+Alt+I"] };
+
+  it("takes a built-in key over the way WordCraft does", () => {
+    const result = addShortcutToUiJson(JSON.stringify({ keyboard: { assigned: {}, removed: [] } }), "Mod+Alt+I");
+    expect(result.conflict).toBeUndefined();
+    expect(result.replaced).toBe("file.print");
+    expect(JSON.parse(result.text).keyboard).toEqual(printTakenOver);
+    expect(addShortcutToUiJson(result.text, "Mod+Alt+I").changed).toBe(false);
+  });
+
+  it("replaces a key the user assigned elsewhere when asked to", () => {
+    const taken = JSON.stringify({ keyboard: { assigned: { "Mod+Shift+I": "format.italic" }, removed: [] } });
+    const result = addShortcutToUiJson(taken, "Mod+Shift+I", true);
+    expect(result.replaced).toBe("format.italic");
+    expect(JSON.parse(result.text).keyboard.assigned).toEqual({ "Mod+Shift+I": WORDCRAFT_CITATION_COMMAND });
+  });
+
+  it("gives the built-in key back when the shortcut moves or is removed", () => {
+    const text = JSON.stringify({ keyboard: { ...printTakenOver, removed: ["Mod+Alt+I", "Mod+P"] } });
+    expect(JSON.parse(addShortcutToUiJson(text, "Mod+Shift+I").text).keyboard)
+      .toEqual({ assigned: { "Mod+Shift+I": WORDCRAFT_CITATION_COMMAND }, removed: ["Mod+P"] });
+    expect(JSON.parse(removeShortcutFromUiJson(text).text).keyboard).toEqual({ assigned: {}, removed: ["Mod+P"] });
+  });
+});
+
 describe("running WordCraft detection", () => {
   it("reads tasklist CSV and ps output", () => {
     expect(processListHasWordCraft("\"wordcraft.exe\",\"41212\",\"Console\",\"1\",\"210,000 K\"")).toBe(true);
@@ -202,5 +229,12 @@ describe("shortcut keeper", () => {
     wordCraftRewrites(taken);
     expect(await keepWordCraftShortcut("windows")).toBe(false);
     expect(files.get(UI_PATH)!.text).toBe(taken);
+  });
+
+  it("keeps a key that overrides a WordCraft built-in", async () => {
+    prefs.set("wordcraftShortcut", "Ctrl+Alt+I");
+    expect(await keepWordCraftShortcut("windows")).toBe(true);
+    expect(JSON.parse(files.get(UI_PATH)!.text).keyboard)
+      .toEqual({ assigned: { "Mod+Alt+I": WORDCRAFT_CITATION_COMMAND }, removed: ["Mod+Alt+I"] });
   });
 });

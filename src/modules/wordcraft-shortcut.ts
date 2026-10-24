@@ -292,59 +292,92 @@ export interface UiJsonRewrite {
   text: string;
   changed: boolean;
   conflict?: string;
+  /** Command whose binding on the key was taken over (built-in or user-assigned). */
+  replaced?: string;
 }
 
-/**
- * Bind `key` to the Zotero citation command in a ui.json document.
- * A key already assigned to a different command is reported as a conflict
- * and left alone; earlier InstantCite bindings on other keys are dropped.
- */
-export function addShortcutToUiJson(text: string, key: string): UiJsonRewrite {
+interface KeyboardSection {
+  data: any;
+  keyboard: any;
+  assigned: Record<string, unknown>;
+  removed: unknown[];
+}
+
+function readKeyboard(text: string): KeyboardSection {
   const data = text.trim() ? JSON.parse(text) : {};
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("ui.json is not a JSON object");
   const keyboard = (data.keyboard && typeof data.keyboard === "object") ? data.keyboard : {};
   const assigned: Record<string, unknown> =
     (keyboard.assigned && typeof keyboard.assigned === "object") ? keyboard.assigned : {};
   const removed: unknown[] = Array.isArray(keyboard.removed) ? keyboard.removed : [];
+  return { data, keyboard, assigned, removed };
+}
 
+/**
+ * Unbind every citation key except `keep`. A built-in key we had taken over
+ * is dropped from `removed` as well, so its built-in command works again.
+ */
+function dropCitationKeys(section: KeyboardSection, keep: string | null): boolean {
+  let changed = false;
+  for (const [k, v] of Object.entries(section.assigned)) {
+    if (v !== WORDCRAFT_CITATION_COMMAND || (keep && canonicalKey(k) === canonicalKey(keep))) continue;
+    delete section.assigned[k];
+    if (getDefaultBindingConflict(k)) {
+      section.removed = section.removed.filter(entry => !isRemovedEntryForKey(entry, k));
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Bind `key` to the Zotero citation command in a ui.json document, the way
+ * WordCraft's own Customize Keyboard does it: a key that belongs to a
+ * built-in command is assigned and also listed in `removed`, which turns the
+ * built-in binding off. A key the user assigned to another command is a
+ * conflict unless `override` is set. Earlier InstantCite keys are dropped.
+ */
+export function addShortcutToUiJson(text: string, key: string, override = false): UiJsonRewrite {
+  const section = readKeyboard(text);
+  const { assigned } = section;
+
+  let replaced: string | undefined;
   const existing = findBinding(assigned, key);
   if (existing && existing[1] !== WORDCRAFT_CITATION_COMMAND) {
-    return { text, changed: false, conflict: `${existing[0]} is already assigned to ${existing[1]}` };
+    if (!override) return { text, changed: false, conflict: `${existing[0]} is already assigned to ${existing[1]}` };
+    delete assigned[existing[0]];
+    replaced = String(existing[1]);
   }
 
-  let changed = false;
-  for (const [k, v] of Object.entries(assigned)) {
-    if (v === WORDCRAFT_CITATION_COMMAND && canonicalKey(k) !== canonicalKey(key)) {
-      delete assigned[k];
-      changed = true;
-    }
-  }
-  if (!existing) {
+  let changed = dropCitationKeys(section, key) || replaced !== undefined;
+  if (!existing || replaced !== undefined) {
     assigned[key] = WORDCRAFT_CITATION_COMMAND;
     changed = true;
   }
-  const keptRemoved = removed.filter(entry => !isRemovedEntryForKey(entry, key));
-  if (keptRemoved.length !== removed.length) changed = true;
 
-  if (!changed) return { text, changed: false };
-  data.keyboard = { ...keyboard, assigned, removed: keptRemoved };
-  return { text: JSON.stringify(data, null, 2), changed: true };
+  const builtIn = getDefaultBindingConflict(key);
+  const listed = section.removed.some(entry => isRemovedEntryForKey(entry, key));
+  if (builtIn && !listed) {
+    section.removed = [...section.removed, key];
+    changed = true;
+  } else if (!builtIn && listed) {
+    section.removed = section.removed.filter(entry => !isRemovedEntryForKey(entry, key));
+    changed = true;
+  }
+  replaced ??= builtIn ?? undefined;
+
+  if (!changed) return { text, changed: false, replaced };
+  section.data.keyboard = { ...section.keyboard, assigned, removed: section.removed };
+  return { text: JSON.stringify(section.data, null, 2), changed: true, replaced };
 }
 
-/** Remove every key bound to the Zotero citation command. */
+/** Remove every key bound to the Zotero citation command and give built-in keys back. */
 export function removeShortcutFromUiJson(text: string): UiJsonRewrite {
   if (!text.trim()) return { text, changed: false };
-  const data = JSON.parse(text);
-  const assigned = data?.keyboard?.assigned;
-  if (!assigned || typeof assigned !== "object") return { text, changed: false };
-  let changed = false;
-  for (const [k, v] of Object.entries(assigned)) {
-    if (v === WORDCRAFT_CITATION_COMMAND) {
-      delete assigned[k];
-      changed = true;
-    }
-  }
-  return changed ? { text: JSON.stringify(data, null, 2), changed } : { text, changed };
+  const section = readKeyboard(text);
+  if (!dropCitationKeys(section, null)) return { text, changed: false };
+  section.data.keyboard = { ...section.keyboard, assigned: section.assigned, removed: section.removed };
+  return { text: JSON.stringify(section.data, null, 2), changed: true };
 }
 
 /** Is a WordCraft process listed in this `tasklist /FO CSV /NH` or `ps -A -o comm=` output? */
@@ -480,14 +513,6 @@ export async function installWordCraftShortcut(
     return { success: false, message: `"${shortcut}" is not a valid shortcut. Use something like Ctrl+Shift+I.` };
   }
 
-  const builtIn = getDefaultBindingConflict(key);
-  if (builtIn) {
-    return {
-      success: false,
-      message: `${key} is a built-in WordCraft shortcut (${builtIn}). Choose another key, for example Ctrl+Shift+I.`,
-    };
-  }
-
   try {
     const target = await findUiJson(platform);
     if (!target) {
@@ -501,10 +526,7 @@ export async function installWordCraftShortcut(
     }
 
     const original = target.exists ? await IOUtils.readUTF8(target.path) : null;
-    const rewrite = addShortcutToUiJson(original ?? "", key);
-    if (rewrite.conflict) {
-      return { success: false, message: "Installation failed: " + rewrite.conflict + ".", showManual: true };
-    }
+    const rewrite = addShortcutToUiJson(original ?? "", key, true);
     if (rewrite.changed) await writeWithBackup(target.path, original, rewrite.text);
     setPref("wordcraftShortcut", shortcut);
     setPref("wordcraftShortcutKeep", true);
@@ -518,7 +540,9 @@ export async function installWordCraftShortcut(
         "within a second, as long as Zotero is running.";
     return {
       success: true,
-      message: `Keyboard shortcut ${key} installed in WordCraft.\n\n${restart}\n` +
+      message: `Keyboard shortcut ${key} installed in WordCraft.` +
+        (rewrite.replaced ? ` It replaces WordCraft's ${rewrite.replaced} on that key.` : "") +
+        `\n\n${restart}\n` +
         "Settings file: " + target.path +
         (rewrite.changed && original !== null ? "\nBackup: " + target.path + BACKUP_SUFFIX : ""),
     };
@@ -574,14 +598,15 @@ export function stopWordCraftShortcutKeeper(): void {
 /**
  * One keeper pass: when ui.json changed since the last pass and lacks the
  * binding, add it back. Resolves true when the file was rewritten. A key the
- * user bound to another command in WordCraft is left alone.
+ * user bound to another command in WordCraft afterwards is left alone; a
+ * built-in command on the key is overridden, as Install did.
  */
 export async function keepWordCraftShortcut(platform: InstantCitePlatform = detectPlatform()): Promise<boolean> {
   if (keeperBusy || !getPref<boolean>("wordcraftShortcutKeep")) return false;
   keeperBusy = true;
   try {
     const key = toWordCraftKey(getPref<string>("wordcraftShortcut") || getDefaultWordCraftShortcut(), platform);
-    if (!key || getDefaultBindingConflict(key)) return false;
+    if (!key) return false;
     const target = await findUiJson(platform);
     if (!target?.exists) return false;
     const mtime = (await IOUtils.stat(target.path)).lastModified ?? null;
