@@ -9,7 +9,8 @@ search your library and online sources, add a paper to Zotero and cite it in one
 
 ## What it does
 
-- Searches by title, author, keyword, DOI, or PMID.
+- Searches by title, author, keyword, DOI, ISBN, or PMID.
+- Advanced search narrows a query by title, author, DOI or ISBN, document type, and year or year range.
 - Queries your Zotero library and the academic, bibliographic, or legal sources you enable.
 - Orders results by relevance and checks them against items already in your library and document.
 - Shows authors, publication, year, DOI, and abstract before you cite.
@@ -28,6 +29,10 @@ installed. When the process lookup is inconclusive, the session is treated as Wo
 
 The **Only WordCraft documents** setting turns this check off; the plugin then intercepts
 every citation dialog, like the original Instant Cite.
+
+## Search options
+
+Choose the sources and search options in Zotero. An OpenAlex API key is optional; adding a free key from your openalex.org account raises the daily OpenAlex quota.
 
 ## Using it next to Instant Cite
 
