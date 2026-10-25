@@ -134,7 +134,7 @@ async function bcubRequest(session: BcubSession, method: "GET" | "POST", url: st
 
 function getTimeout(): number {
   try {
-    const secs = Zotero.Prefs.get("InstantCite.searchTimeout");
+    const secs = Zotero.Prefs.get("InstantCiteWordCraft.searchTimeout");
     if (typeof secs === "number" && secs >= 1 && secs <= 30) return secs * 1000;
   } catch { /* ignore */ }
   return 15000;

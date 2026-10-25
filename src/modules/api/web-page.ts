@@ -26,7 +26,7 @@ export async function translateWebPage(url: string): Promise<SearchResponse> {
   try {
     items = await runTranslators(doc);
   } catch (err) {
-    Zotero.log("[InstantCite] Web translation failed for " + finalUrl + ": " + err);
+    Zotero.log("[InstantCite WordCraft] Web translation failed for " + finalUrl + ": " + err);
   }
   if (items.length === 0) {
     if (isBotCheckPage(parsed, html)) {

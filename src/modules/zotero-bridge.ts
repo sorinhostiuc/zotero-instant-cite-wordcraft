@@ -131,7 +131,7 @@ async function addTranslatedItem(paper: PaperResult): Promise<Zotero.Item> {
   item.fromJSON(json);
   await item.saveTx();
   (paper as any)._zoteroItemId = item.id;
-  Zotero.log("[InstantCite] Added from web page: " + paper.title);
+  Zotero.log("[InstantCite WordCraft] Added from web page: " + paper.title);
   return item;
 }
 

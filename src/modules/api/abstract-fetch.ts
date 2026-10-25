@@ -50,7 +50,7 @@ async function lookupAbstract(paper: PaperResult): Promise<string | undefined> {
       const text = cleanAbstract(await fetcher(paper));
       if (text) return text;
     } catch (e) {
-      if (typeof Zotero !== "undefined") Zotero.log("[InstantCite] Abstract lookup failed: " + e);
+      if (typeof Zotero !== "undefined") Zotero.log("[InstantCite WordCraft] Abstract lookup failed: " + e);
     }
   }
   return undefined;
